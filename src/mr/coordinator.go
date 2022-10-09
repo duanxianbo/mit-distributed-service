@@ -1,15 +1,30 @@
 package mr
 
-import "log"
-import "net"
-import "os"
-import "net/rpc"
-import "net/http"
+import (
+	"errors"
+	"log"
+	"net"
+	"net/http"
+	"net/rpc"
+	"os"
+)
 
+type MRState string
+
+const (
+	mapping  MRState = "mapping"
+	reducing MRState = "reducing"
+	finished MRState = "finished"
+)
 
 type Coordinator struct {
-	// Your definitions here.
-
+	nextWorkerId int
+	nextTaskId   int
+	mapTasks     map[int]*MapTask
+	reduceTasks  map[int]*ReduceTask
+	nReducer     int
+	nMapper      int
+	phrase       MRState
 }
 
 // Your code here -- RPC handlers for the worker to call.
@@ -19,11 +34,20 @@ type Coordinator struct {
 //
 // the RPC argument and reply types are defined in rpc.go.
 //
-func (c *Coordinator) Example(args *ExampleArgs, reply *ExampleReply) error {
-	reply.Y = args.X + 1
+func (c *Coordinator) AskForTask(args *AskForTaskArgs, reply *AskForTaskReply) error {
+
+	c.getNextIdleTask()
+
 	return nil
 }
 
+func (c *Coordinator) getNextIdleTask() (int, error) {
+	if c.phrase == mapping {
+		if c.nextTaskId == len(c.mapTaskState) {
+			return errors.New("no more")
+		}
+	}
+}
 
 //
 // start a thread that listens for RPCs from worker.go
@@ -50,7 +74,6 @@ func (c *Coordinator) Done() bool {
 
 	// Your code here.
 
-
 	return ret
 }
 
@@ -63,7 +86,6 @@ func MakeCoordinator(files []string, nReduce int) *Coordinator {
 	c := Coordinator{}
 
 	// Your code here.
-
 
 	c.server()
 	return &c

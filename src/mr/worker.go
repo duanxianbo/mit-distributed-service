@@ -1,10 +1,13 @@
 package mr
 
-import "fmt"
-import "log"
-import "net/rpc"
-import "hash/fnv"
-
+import (
+	"fmt"
+	"hash/fnv"
+	"io/ioutil"
+	"log"
+	"net/rpc"
+	"os"
+)
 
 //
 // Map functions return a slice of KeyValue.
@@ -24,7 +27,6 @@ func ihash(key string) int {
 	return int(h.Sum32() & 0x7fffffff)
 }
 
-
 //
 // main/mrworker.go calls this function.
 //
@@ -34,7 +36,7 @@ func Worker(mapf func(string, string) []KeyValue,
 	// Your worker implementation here.
 
 	// uncomment to send the Example RPC to the coordinator.
-	// CallExample()
+	CallExample(mapf, reducef)
 
 }
 
@@ -43,14 +45,14 @@ func Worker(mapf func(string, string) []KeyValue,
 //
 // the RPC argument and reply types are defined in rpc.go.
 //
-func CallExample() {
+func CallExample(mapf func(string, string) []KeyValue,
+	reducef func(string, []string) string) {
 
 	// declare an argument structure.
 	args := ExampleArgs{}
 
 	// fill in the argument(s).
-	args.X = 99
-
+	args.askTask = true
 	// declare a reply structure.
 	reply := ExampleReply{}
 
@@ -59,12 +61,64 @@ func CallExample() {
 	// receiving server that we'd like to call
 	// the Example() method of struct Coordinator.
 	ok := call("Coordinator.Example", &args, &reply)
+
 	if ok {
-		// reply.Y should be 100.
-		fmt.Printf("reply.Y %v\n", reply.Y)
+		if reply.work == Map {
+			filename := reply.filename
+			file, err := os.Open(filename)
+			if err != nil {
+				log.Fatalf("cannot open %v", filename)
+			}
+			content, err := ioutil.ReadAll(file)
+			if err != nil {
+				log.Fatalf("cannot read %v", filename)
+			}
+			file.Close()
+			kva := mapf(filename, string(content))
+
+			for _, item := range kva {
+				partitionIndex := ihash(item.Key)
+				intermediateFileName := getIntermediateFileName(reply.mapIndex, partitionIndex)
+				writeToIntermediate(intermediateFileName, item)
+			}
+		}
+
 	} else {
 		fmt.Printf("call failed!\n")
 	}
+}
+
+func getIntermediateFileName(mapIndex string, partitionIndex int) string {
+	return "inter-" + mapIndex + "-" + string(partitionIndex)
+}
+
+func writeToIntermediate(filename string, item KeyValue) error {
+
+	var _, err = os.Stat(filename)
+	var ofile *os.File
+	if os.IsNotExist(err) {
+		ofile, err = os.Create(filename)
+		if err != nil {
+			fmt.Println(err)
+			return err
+		}
+
+	} else {
+		ofile, err = os.Open(filename)
+		if err != nil {
+			log.Fatalf("cannot open %v", filename)
+			return err
+		}
+	}
+
+	_, err = fmt.Fprintf(ofile, "%v %v\n", item.Key, item.Value)
+
+	if err != nil {
+		log.Fatalf("cannot write to %v", filename)
+		return err
+	}
+
+	return ofile.Close()
 }
 
 //
